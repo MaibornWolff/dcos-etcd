@@ -1,0 +1,147 @@
+
+name: {{FRAMEWORK_NAME}}
+scheduler:
+  principal: {{FRAMEWORK_PRINCIPAL}}
+  user: {{FRAMEWORK_USER}}
+pods:
+  etcd:
+    count: {{NODE_COUNT}}
+    placement: '{{{NODE_PLACEMENT}}}'
+    {{#ENABLE_VIRTUAL_NETWORK}}
+    networks:
+      {{VIRTUAL_NETWORK_NAME}}:
+        labels: {{VIRTUAL_NETWORK_PLUGIN_LABELS}}
+    {{/ENABLE_VIRTUAL_NETWORK}}
+    uris:
+      - {{ETCD_URI}}
+      - {{BOOTSTRAP_URI}}
+    tasks:
+      node:
+        goal: RUNNING
+        ports:
+          api:
+            port: {{PORT_CLIENT}}
+            env-key: PORT_CLIENT
+            advertise: true
+            vip:
+              port: {{PORT_CLIENT}}
+          peer:
+            port: {{PORT_PEER}}
+            env-key: PORT_PEER
+        cmd: |
+          mv etcd-*/{etcd,etcdctl} .
+          chmod +x etcd etcdctl
+          PROTOCOL=http
+          {{#TLS_ENABLED}}
+          # Configure TLS
+          PROTOCOL=https
+          {{#USE_AUTO_TLS}}
+          export ETCD_AUTO_TLS=true
+          export ETCD_PEER_AUTO_TLS=true
+          {{/USE_AUTO_TLS}}
+          {{^USE_AUTO_TLS}}
+          export ETCD_CERT_FILE=$MESOS_SANDBOX/node.crt
+          export ETCD_KEY_FILE=$MESOS_SANDBOX/node.key
+          export ETCD_TRUSTED_CA_FILE=$MESOS_SANDBOX/node.ca
+          export ETCD_PEER_CERT_FILE=$MESOS_SANDBOX/node.crt
+          export ETCD_PEER_KEY_FILE=$MESOS_SANDBOX/node.key
+          export ETCD_PEER_TRUSTED_CA_FILE=$MESOS_SANDBOX/node.ca
+          export ETCD_PEER_CLIENT_CERT_AUTH=true
+          {{/USE_AUTO_TLS}}
+          {{/TLS_ENABLED}}
+          # Construct list of nodes to use for bootstraping
+          PEER_LIST=""
+          for i in $(seq 0 $(({{NODE_COUNT}}-1))); do
+            if [ -n "$PEER_LIST" ]; then
+              PEER_LIST="$PEER_LIST,"
+            fi
+            PEER_LIST="${PEER_LIST}etcd-${i}-node=$PROTOCOL://etcd-${i}-node.${FRAMEWORK_HOST}:${PORT_PEER}"
+          done
+          ./bootstrap
+          export ETCD_INITIAL_CLUSTER_STATE=new
+          # Reconfigure member if needed
+          if [ ! -e "$MESOS_SANDBOX/etcd-data/initialized" ]; then
+            CONTACT_ENDPOINT=$PROTOCOL://api.${FRAMEWORK_VIP_HOST}:${PORT_CLIENT}
+            # Either fresh installation or replaced node
+            MEMBER_ID=$(./etcdctl --endpoints $CONTACT_ENDPOINT member list | grep etcd-${POD_INSTANCE_INDEX}-node | cut -f 1 -d":")
+            # If cluster is reachable and knows the member, this is a replace and we must remove the old member entry first
+            if [ -n "$MEMBER_ID" ]; then
+              echo "Member already exists in cluster. Removing and readding it."
+              ./etcdctl --endpoints $CONTACT_ENDPOINT member remove $MEMBER_ID
+              ./etcdctl --endpoints $CONTACT_ENDPOINT member add etcd-${POD_INSTANCE_INDEX}-node $PROTOCOL://etcd-${POD_INSTANCE_INDEX}-node.${FRAMEWORK_HOST}:${PORT_PEER}
+              export ETCD_INITIAL_CLUSTER_STATE=existing
+            fi
+            touch $MESOS_SANDBOX/etcd-data/initialized
+          fi
+          # Start etcd
+          export ETCD_NAME=$TASK_NAME
+          export ETCD_LISTEN_PEER_URLS=$PROTOCOL://${MESOS_CONTAINER_IP}:${PORT_PEER}
+          export ETCD_LISTEN_CLIENT_URLS=$PROTOCOL://${MESOS_CONTAINER_IP}:${PORT_CLIENT},$PROTOCOL://127.0.0.1:${PORT_CLIENT}
+          export ETCD_INITIAL_ADVERTISE_PEER_URLS=$PROTOCOL://${MESOS_CONTAINER_IP}:${PORT_PEER}
+          export ETCD_ADVERTISE_CLIENT_URLS=$PROTOCOL://${MESOS_CONTAINER_IP}:${PORT_CLIENT}
+          export ETCD_INITIAL_CLUSTER=$PEER_LIST
+          export ETCD_INITIAL_CLUSTER_TOKEN={{INITIAL_CLUSTER_TOKEN}}
+          export ETCD_DATA_DIR=$MESOS_SANDBOX/etcd-data
+          export ETCD_SNAPSHOT_COUNT={{SNAPSHOT_COUNT}}
+          export ETCD_HEARTBEAT_INTERVAL={{HEARTBEAT_INTERVAL}}
+          export ETCD_ELECTION_TIMEOUT={{ELECTION_TIMEOUT}}
+          env
+          ./etcd
+          echo Finished with $?
+        cpus: {{NODE_CPUS}}
+        memory: {{NODE_MEM}}
+        volume:
+          path: "etcd-data"
+          type: {{NODE_DISK_TYPE}}
+          size: {{NODE_DISK}}
+        {{#TLS_ENABLED}}
+        {{^USE_AUTO_TLS}}
+        transport-encryption:
+          - name: node
+            type: TLS
+        {{/USE_AUTO_TLS}}
+        {{/TLS_ENABLED}}
+        readiness-check:
+          cmd: |
+            set -x
+            {{#TLS_ENABLED}}
+            PROTOCOL=https
+            {{/TLS_ENABLED}}
+            {{^TLS_ENABLED}}
+            PROTOCOL=http
+            {{/TLS_ENABLED}}
+            curl -k $PROTOCOL://$TASK_NAME.$FRAMEWORK_HOST:$PORT_CLIENT/health 2>/dev/null | grep true
+          interval: 10
+          delay: 20
+          timeout: 5
+        health-check:
+          cmd: |
+            set -x
+            {{#TLS_ENABLED}}
+            PROTOCOL=https
+            {{/TLS_ENABLED}}
+            {{^TLS_ENABLED}}
+            PROTOCOL=http
+            {{/TLS_ENABLED}}
+            curl -k $PROTOCOL://$TASK_NAME.$FRAMEWORK_HOST:$PORT_CLIENT/health 2>/dev/null | grep true
+          interval: 10
+          grace-period: 60
+          delay: 30
+          timeout: 5
+          max-consecutive-failures: 10
+
+
+
+plans:
+  deploy:
+    strategy: serial
+    phases:
+      agents:
+        strategy: {{DEPLOY_STRATEGY}}
+        pod: etcd
+  update:
+    strategy: serial
+    phases:
+      agents:
+        strategy: {{UPDATE_STRATEGY}}
+        pod: etcd
