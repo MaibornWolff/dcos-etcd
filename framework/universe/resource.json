@@ -6,8 +6,8 @@
       "libmesos-bundle-tar-gz": "https://downloads.mesosphere.com/libmesos-bundle/libmesos-bundle-1.11.0.tar.gz",
       "bootstrap-zip": "https://downloads.mesosphere.com/dcos-commons/artifacts/0.55.2/bootstrap.zip",
       "scheduler-zip": "https://ecosystem-repo.s3.amazonaws.com/sdk/artifacts/0.55.2/operator-scheduler.zip",
-      "etcd-tar-gz": "https://github.com/etcd-io/etcd/releases/download/v3.3.11/etcd-v3.3.11-linux-amd64.tar.gz",
-      "svc": "http://minio.marathon.l4lb.thisdcos.directory:9000/artifacts/etcd/svc.yml"
+      "etcd-tar-gz": "https://github.com/etcd-io/etcd/releases/download/v3.3.12/etcd-v3.3.12-linux-amd64.tar.gz",
+      "svc": "https://github.com/MaibornWolff/dcos-etcd/releases/download/v0.1.0-3.3.12/svc.yml"
     }
   },
   "images": {
