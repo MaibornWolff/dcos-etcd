@@ -1,3 +1,6 @@
+# END OF LIFE
+This project is not being maintained anymore.
+
 # etcd for DC/OS
 
 [etcd](https://etcd.io) is an open-source distributed key-value store. This project aims to deploy etcd in a distributed and high-availability manner on [DC/OS](https://dcos.io) clusters and provides a package for easy installation and management.
